@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"fmt"
 	"io"
 	"log"
@@ -11,10 +12,12 @@ import (
 )
 
 // Streams upload directly from file -> mime/multipart -> pipe -> http-request
-func streamingUploadFile(params map[string]string, paramName, path string, w *io.PipeWriter, file *os.File) {
+func streamingUploadFile(params map[string]string, paramName, path, boundary string, w *io.PipeWriter, file *os.File) {
 	defer file.Close()
 	defer w.Close()
 	writer := multipart.NewWriter(w)
+	writer.SetBoundary(boundary)
+
 	part, err := writer.CreateFormFile(paramName, filepath.Base(path))
 	if err != nil {
 		log.Fatal(err)
@@ -43,10 +46,24 @@ func newfileUploadRequest(uri string, params map[string]string, paramName, path 
 	if err != nil {
 		return nil, err
 	}
-
+	boundary := RandomBoundary()
 	r, w := io.Pipe()
-	go streamingUploadFile(params, paramName, path, w, file)
-	return http.NewRequest("POST", uri, r)
+	go streamingUploadFile(params, paramName, path, boundary, w, file)
+	request, err := http.NewRequest("POST", uri, r)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Content-Type", "multipart/form-data; boundary="+boundary)
+	return request, err
+}
+
+func RandomBoundary() string {
+	var buf [30]byte
+	_, err := io.ReadFull(rand.Reader, buf[:])
+	if err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf("%x", buf[:])
 }
 
 func main() {
